@@ -1,0 +1,114 @@
+#---------------------------------------------------------------------------------
+# MiiCord Makefile - Developer: Morris
+#---------------------------------------------------------------------------------
+
+APP_TITLE       := MiiCord
+APP_DESCRIPTION := Chat with other people...
+APP_AUTHOR      := Morris, Artendo 
+APP_ICON        := icon.png
+
+# Name der fertigen Datei
+TARGET		:=	MiiCord
+
+# Verzeichnisstruktur 
+BUILD		:=	build
+SOURCES		:=	source
+INCLUDES	:=	include
+DATA		:=	data
+GRAPHICS	:=	gfx
+
+#---------------------------------------------------------------------------------
+# Prüfung der devkitARM Umgebung 
+#---------------------------------------------------------------------------------
+ifeq ($(strip $(DEVKITARM)),)
+$(error "Bitte setze DEVKITARM in deiner Umgebung. export DEVKITARM=<pfad zu>devkitARM")
+endif
+
+TOPDIR ?= $(CURDIR)
+include $(DEVKITARM)/3ds_rules
+
+#---------------------------------------------------------------------------------
+# Compiler-Optionen & Architektur 
+#---------------------------------------------------------------------------------
+ARCH	:=	-march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft
+
+CFLAGS	:=	-g -Wall -O2 -mword-relocations \
+			-ffunction-sections \
+			$(ARCH)
+
+CFLAGS	+=	$(INCLUDE) -D__3DS__
+
+CXXFLAGS	:= $(CFLAGS) -fno-rtti -fno-exceptions -std=gnu++11
+
+ASFLAGS	:=	-g $(ARCH)
+LDFLAGS	:=	-specs=3dsx.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)
+
+# FIX: Hinzugefügt curl, mbedtls und citro2d für Netzwerk & Status-Anzeige
+LIBS	:= -lcitro2d -lcitro3d -lctru -lcurl -mbedtls -mbedx509 -mbedcrypto -lz -lm
+
+# Pfade zu den Bibliotheken 
+LIBDIRS	:= $(CTRULIB) $(PORTLIBS)
+
+#---------------------------------------------------------------------------------
+# Automatische Suche nach Quelldateien 
+#---------------------------------------------------------------------------------
+ifneq ($(BUILD),$(notdir $(CURDIR)))
+
+export OUTPUT	:=	$(CURDIR)/$(TARGET)
+export TOPDIR	:=	$(CURDIR)
+
+export VPATH	:=	$(foreach dir,$(SOURCES),$(CURDIR)/$(dir)) \
+			$(foreach dir,$(GRAPHICS),$(CURDIR)/$(dir)) \
+			$(foreach dir,$(DATA),$(CURDIR)/$(dir))
+
+export DEPSDIR	:=	$(CURDIR)/$(BUILD)
+
+CFILES		:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.c)))
+CPPFILES	:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.cpp)))
+SFILES		:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.s)))
+
+export OFILES_SOURCES 	:=	$(CPPFILES:.cpp=.o) $(CFILES:.c=.o) $(SFILES:.s=.o)
+export OFILES := $(OFILES_SOURCES)
+
+export INCLUDE	:=	$(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
+			$(foreach dir,$(LIBDIRS),-I$(dir)/include) \
+			-I$(CURDIR)/$(BUILD)
+
+export LIBPATHS	:=	$(foreach dir,$(LIBDIRS),-L$(dir)/lib)
+
+export _3DSXDEPS	:=	$(OUTPUT).smdh
+
+# SMDH Metadaten Generierung
+export _3DSXFLAGS += --smdh=$(CURDIR)/$(TARGET).smdh
+
+.PHONY: all clean
+
+all: $(BUILD) $(DEPSDIR)
+	@$(MAKE) --no-print-directory -C "$(CURDIR)/$(BUILD)" -f "$(CURDIR)/Makefile"
+
+$(BUILD):
+	@mkdir -p $@
+
+$(DEPSDIR):
+	@mkdir -p $@
+
+clean:
+	@echo "Bereinige Projekt..."
+	@rm -fr $(BUILD) $(TARGET).3dsx $(TARGET).smdh $(TARGET).elf
+
+else
+
+#---------------------------------------------------------------------------------
+# Targets für das Kompilieren 
+#---------------------------------------------------------------------------------
+$(OUTPUT).3dsx	:	$(OUTPUT).elf $(_3DSXDEPS)
+
+$(OFILES_SOURCES) : $(HFILES)
+
+# FIX: Linker-Aufruf mit korrekter Reihenfolge für externe Libs
+$(OUTPUT).elf	:	$(OFILES)
+	$(DEVKITARM)/bin/arm-none-eabi-g++ $(LDFLAGS) $(OFILES) $(LIBPATHS) $(LIBS) -o $@
+
+-include $(DEPSDIR)/*.d
+
+endif
